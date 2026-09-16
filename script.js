@@ -108,7 +108,7 @@ document.querySelectorAll('.about__stat, .about__skills-strip .tag').forEach(el 
     observer.observe(el);
 });
 
-// Projects carousel — glide with arrows, dots, swipe & keyboard
+// Projects carousel — glide with arrows, dots, counter, drag/swipe & keyboard
 (function initCarousel() {
     const track = document.querySelector('.carousel__track');
     const viewport = document.querySelector('.carousel__viewport');
@@ -118,6 +118,11 @@ document.querySelectorAll('.about__stat, .about__skills-strip .tag').forEach(el 
     const prevBtn = document.querySelector('.carousel__arrow--prev');
     const nextBtn = document.querySelector('.carousel__arrow--next');
     const dotsWrap = document.querySelector('.carousel__dots');
+    const nowEl = document.getElementById('carouselNow');
+    const totalEl = document.getElementById('carouselTotal');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (totalEl) totalEl.textContent = slides.length;
 
     let index = 0;
     let perView = 3;
@@ -138,9 +143,10 @@ document.querySelectorAll('.about__stat, .about__skills-strip .tag').forEach(el 
         dotsWrap.innerHTML = '';
         for (let i = 0; i <= maxIndex(); i++) {
             const dot = document.createElement('button');
+            dot.type = 'button';
             dot.className = 'carousel__dot' + (i === index ? ' carousel__dot--active' : '');
             dot.setAttribute('aria-label', 'Go to slide ' + (i + 1));
-            dot.addEventListener('click', () => goTo(i));
+            dot.addEventListener('click', () => { goTo(i); restartAutoplay(); });
             dotsWrap.appendChild(dot);
         }
     }
@@ -159,6 +165,7 @@ document.querySelectorAll('.about__stat, .about__skills-strip .tag').forEach(el 
         track.style.transform = 'translateX(' + (-slideOffset(index)) + 'px)';
         prevBtn.disabled = index === 0;
         nextBtn.disabled = index === maxIndex();
+        if (nowEl) nowEl.textContent = Math.min(index + 1, slides.length);
     }
 
     function goTo(i) {
@@ -170,6 +177,7 @@ document.querySelectorAll('.about__stat, .about__skills-strip .tag').forEach(el 
         track.style.transform = 'translateX(' + (-slideOffset(index)) + 'px)';
         prevBtn.disabled = index === 0;
         nextBtn.disabled = index === maxIndex();
+        if (nowEl) nowEl.textContent = Math.min(index + 1, slides.length);
     }
 
     prevBtn.addEventListener('click', () => { goTo(index - 1); restartAutoplay(); });
@@ -178,26 +186,40 @@ document.querySelectorAll('.about__stat, .about__skills-strip .tag').forEach(el 
     // Keyboard support
     viewport.setAttribute('tabindex', '0');
     viewport.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowLeft') goTo(index - 1);
-        if (e.key === 'ArrowRight') goTo(index + 1);
+        if (e.key === 'ArrowLeft') { goTo(index - 1); restartAutoplay(); }
+        if (e.key === 'ArrowRight') { goTo(index + 1); restartAutoplay(); }
     });
 
-    // Touch swipe
+    // Pointer drag + touch swipe (mouse drag on desktop counts too)
     let startX = null;
-    viewport.addEventListener('touchstart', (e) => {
-        startX = e.touches[0].clientX;
-    }, { passive: true });
-    viewport.addEventListener('touchend', (e) => {
-        if (startX === null) return;
-        const dx = e.changedTouches[0].clientX - startX;
-        if (Math.abs(dx) > 40) { goTo(index + (dx < 0 ? 1 : -1)); restartAutoplay(); }
+    let dragging = false;
+    viewport.addEventListener('pointerdown', (e) => {
+        startX = e.clientX;
+        dragging = true;
+        try { viewport.setPointerCapture(e.pointerId); } catch (err) {}
+        stopAutoplay();
+    });
+    viewport.addEventListener('pointerup', (e) => {
+        if (!dragging || startX === null) return;
+        const dx = e.clientX - startX;
+        if (Math.abs(dx) > 40) goTo(index + (dx < 0 ? 1 : -1));
         startX = null;
-    }, { passive: true });
+        dragging = false;
+        restartAutoplay();
+    });
+    viewport.addEventListener('pointercancel', () => {
+        startX = null;
+        dragging = false;
+        restartAutoplay();
+    });
 
-    // Autoplay — advance every 5s, loop back to start, pause on hover/focus
+    // Autoplay — advance every 5s, loop back to start, pause on hover/focus/touch/hidden tab
     let autoplayTimer = null;
     function startAutoplay() {
         stopAutoplay();
+        if (reduceMotion) return;
+        if (document.hidden) return;
+        if (maxIndex() === 0) return;
         autoplayTimer = setInterval(() => {
             goTo(index >= maxIndex() ? 0 : index + 1);
         }, 5000);
@@ -215,8 +237,17 @@ document.querySelectorAll('.about__stat, .about__skills-strip .tag').forEach(el 
     carousel.addEventListener('mouseleave', startAutoplay);
     viewport.addEventListener('focusin', stopAutoplay);
     viewport.addEventListener('focusout', startAutoplay);
+    viewport.addEventListener('touchstart', stopAutoplay, { passive: true });
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stopAutoplay();
+        else startAutoplay();
+    });
 
-    window.addEventListener('resize', render);
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(render, 150);
+    });
     render();
     startAutoplay();
 })();
